@@ -8,14 +8,17 @@
 # Exemplo:
 #   ./generate-proxy-mtga.sh game/decklist/test.txt
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --keep-mdfc-backs
-#   ./generate-proxy-mtga.sh game/decklist/test.txt --extend-corners 1mm
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --format moxfield
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --pt
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --lang pt --lang sp
+#   ./generate-proxy-mtga.sh game/decklist/test.txt --no-clean
 #
 # O formato padrão é mtga. O idioma padrão é inglês; use --pt (ou --lang <código>,
 # repetível para montar uma lista de prioridade) para buscar as imagens em outro idioma.
 # Cartas sem impressão no idioma pedido caem de volta para o inglês automaticamente.
+#
+# Antes do fetch, game/front/ e game/double_sided/ são limpos com clean_up.py para
+# não misturar imagens de execuções anteriores. Use --no-clean para pular essa etapa.
 #
 # O venv é preparado/ativado automaticamente via ./setup_env.sh.
 # Deve ser executado a partir da raiz do repo silhouette-card-maker
@@ -28,13 +31,14 @@ PAPER_SIZE="a4"
 REGISTRATION="3"
 REGISTRATION_ORIENTATION="landscape"
 FIT="crop"
+EXTEND_CORNERS="3.5mm"
 
 # ---- idiomas aceitos pelo plugins/mtg (códigos impressos, ver plugins/mtg/common.py) ----
 VALID_LANGS=("en" "sp" "fr" "de" "it" "pt" "jp" "kr" "ru" "cs" "ct" "ag" "ph")
 
 # ---- args ----
 if [[ $# -lt 1 ]]; then
-    echo "Uso: $0 <decklist_path> [--format <formato>] [--lang <código>] [--pt] [--keep-mdfc-backs] [--extend-corners <valor>] [--skip <n>]" >&2
+    echo "Uso: $0 <decklist_path> [--format <formato>] [--lang <código>] [--pt] [--keep-mdfc-backs] [--skip <n>] [--no-clean]" >&2
     echo "Idiomas disponíveis: ${VALID_LANGS[*]}" >&2
     exit 1
 fi
@@ -45,9 +49,9 @@ shift
 FORMAT="mtga"
 
 KEEP_MDFC_BACKS=0
-EXTEND_CORNERS=""
 SKIP_INDEX=""
 PREFER_LANGS=()
+CLEAN_UP=1
 
 is_valid_lang() {
     local candidate="$1"
@@ -68,10 +72,6 @@ while [[ $# -gt 0 ]]; do
             KEEP_MDFC_BACKS=1
             shift
             ;;
-        --extend-corners)
-            EXTEND_CORNERS="$2"
-            shift 2
-            ;;
         --skip)
             SKIP_INDEX="$2"
             shift 2
@@ -90,6 +90,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --pt|--portugues|--português)
             PREFER_LANGS+=("pt")
+            shift
+            ;;
+        --no-clean)
+            CLEAN_UP=0
             shift
             ;;
         *)
@@ -115,6 +119,11 @@ if [[ ! -f "setup_env.sh" ]]; then
     exit 1
 fi
 
+if [[ "$CLEAN_UP" -eq 1 && ! -f "clean_up.py" ]]; then
+    echo "Erro: clean_up.py não encontrado na raiz do repo (use --no-clean para pular a limpeza)." >&2
+    exit 1
+fi
+
 # ---- 0. preparar e ativar o venv ----
 echo "==> Preparando ambiente (setup_env.sh)..."
 # shellcheck disable=SC1091
@@ -125,7 +134,15 @@ if [[ -z "${VIRTUAL_ENV:-}" ]]; then
     exit 1
 fi
 
-# ---- 1. fetch das imagens ----
+# ---- 1. limpar imagens de execuções anteriores ----
+if [[ "$CLEAN_UP" -eq 1 ]]; then
+    echo "==> Limpando game/front/ e game/double_sided/ (clean_up.py)..."
+    python clean_up.py
+else
+    echo "==> Pulando limpeza inicial (--no-clean)."
+fi
+
+# ---- 2. fetch das imagens ----
 FETCH_ARGS=("$DECKLIST_PATH" "$FORMAT")
 
 if [[ ${#PREFER_LANGS[@]} -gt 0 ]]; then
@@ -139,12 +156,13 @@ fi
 
 python plugins/mtg/fetch.py "${FETCH_ARGS[@]}"
 
-# ---- 2. decidir --only_fronts vs manter double_sided ----
+# ---- 3. decidir --only_fronts vs manter double_sided ----
 CREATE_PDF_ARGS=(
     --paper_size "$PAPER_SIZE"
     --registration "$REGISTRATION"
     --registration_orientation "$REGISTRATION_ORIENTATION"
     --fit "$FIT"
+    --extend_corners "$EXTEND_CORNERS"
 )
 
 if [[ "$KEEP_MDFC_BACKS" -eq 0 ]]; then
@@ -159,15 +177,11 @@ else
     fi
 fi
 
-if [[ -n "$EXTEND_CORNERS" ]]; then
-    CREATE_PDF_ARGS+=(--extend_corners "$EXTEND_CORNERS")
-fi
-
 if [[ -n "$SKIP_INDEX" ]]; then
     CREATE_PDF_ARGS+=(--skip "$SKIP_INDEX")
 fi
 
-# ---- 3. gerar PDF ----
+# ---- 4. gerar PDF ----
 echo "==> Gerando PDF: python create_pdf.py ${CREATE_PDF_ARGS[*]}"
 python create_pdf.py "${CREATE_PDF_ARGS[@]}"
 
