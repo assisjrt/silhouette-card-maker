@@ -8,10 +8,15 @@
 # Exemplo:
 #   ./generate-proxy-mtga.sh game/decklist/test.txt
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --keep-mdfc-backs
+#   ./generate-proxy-mtga.sh game/decklist/test.txt --no-only-fronts
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --format moxfield
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --pt
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --lang pt --lang sp
 #   ./generate-proxy-mtga.sh game/decklist/test.txt --no-clean
+#
+# Por padrão o PDF é gerado com --only_fronts (as costas de MDFC em
+# game/double_sided/ são descartadas). Use --no-only-fronts (ou --keep-mdfc-backs)
+# para manter game/double_sided/ e gerar o PDF sem --only_fronts.
 #
 # O formato padrão é mtga. O idioma padrão é inglês; use --pt (ou --lang <código>,
 # repetível para montar uma lista de prioridade) para buscar as imagens em outro idioma.
@@ -38,7 +43,7 @@ VALID_LANGS=("en" "sp" "fr" "de" "it" "pt" "jp" "kr" "ru" "cs" "ct" "ag" "ph")
 
 # ---- args ----
 if [[ $# -lt 1 ]]; then
-    echo "Uso: $0 <decklist_path> [--format <formato>] [--lang <código>] [--pt] [--keep-mdfc-backs] [--skip <n>] [--no-clean]" >&2
+    echo "Uso: $0 <decklist_path> [--format <formato>] [--lang <código>] [--pt] [--no-only-fronts|--keep-mdfc-backs] [--skip <n>] [--no-clean]" >&2
     echo "Idiomas disponíveis: ${VALID_LANGS[*]}" >&2
     exit 1
 fi
@@ -48,7 +53,7 @@ shift
 
 FORMAT="mtga"
 
-KEEP_MDFC_BACKS=0
+ONLY_FRONTS=1
 SKIP_INDEX=""
 PREFER_LANGS=()
 CLEAN_UP=1
@@ -68,8 +73,8 @@ while [[ $# -gt 0 ]]; do
             FORMAT="$2"
             shift 2
             ;;
-        --keep-mdfc-backs)
-            KEEP_MDFC_BACKS=1
+        --no-only-fronts|--no-only_fronts|--keep-mdfc-backs)
+            ONLY_FRONTS=0
             shift
             ;;
         --skip)
@@ -165,15 +170,15 @@ CREATE_PDF_ARGS=(
     --extend_corners "$EXTEND_CORNERS"
 )
 
-if [[ "$KEEP_MDFC_BACKS" -eq 0 ]]; then
+if [[ "$ONLY_FRONTS" -eq 1 ]]; then
     if compgen -G "game/double_sided/*" > /dev/null; then
-        echo "==> Limpando game/double_sided/ (--keep-mdfc-backs não foi passado)..."
+        echo "==> Limpando game/double_sided/ (--no-only-fronts não foi passado)..."
         rm -f game/double_sided/*
     fi
     CREATE_PDF_ARGS+=(--only_fronts)
 else
     if ! compgen -G "game/double_sided/*" > /dev/null; then
-        echo "Aviso: --keep-mdfc-backs foi passado mas game/double_sided/ está vazio. Gerando sem --only_fronts mesmo assim." >&2
+        echo "Aviso: --no-only-fronts foi passado mas game/double_sided/ está vazio. Gerando sem --only_fronts mesmo assim." >&2
     fi
 fi
 
